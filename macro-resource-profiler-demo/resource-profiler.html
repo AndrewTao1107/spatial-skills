@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>新能源宏观选址评估系统 | Macro Resource Profiler</title>
+
+    <!-- MapLibre GL JS -->
+    <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
+    
+    <!-- ECharts -->
+    <script src="https://fastly.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+    <style>
+        :root {
+            /* 亮色模式配置 */
+            --bg-light: #f1f5f9;
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(0, 0, 0, 0.1);
+            --accent: #0ea5e9;
+            --accent-hover: #0284c7;
+            --text-main: #334155;
+            --text-muted: #64748b;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-light);
+            color: var(--text-main);
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* ---------------- Map Section ---------------- */
+        #map-container {
+            flex: 1;
+            position: relative;
+        }
+        #map { width: 100%; height: 100%; }
+        
+        .map-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 8px;
+            z-index: 5;
+            font-size: 13px;
+            color: #334155;
+            border: 1px solid var(--glass-border);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .map-overlay select {
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+        }
+        .map-overlay label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        /* ---------------- Legend Panel ---------------- */
+        #lulc-legend {
+            display: none;
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            backdrop-filter: blur(10px);
+            padding: 16px;
+            border-radius: 8px;
+            z-index: 5;
+            font-size: 11px;
+            color: #334155;
+            border: 1px solid var(--glass-border);
+            width: 220px;
+        }
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #0f172a;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 6px;
+        }
+        .legend-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .legend-color {
+            width: 14px;
+            height: 14px;
+            border-radius: 2px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+        
+        /* ---------------- Sidebar / Control Panel ---------------- */
+        #sidebar {
+            width: 480px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-left: 1px solid var(--glass-border);
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: -10px 0 30px rgba(0,0,0,0.05);
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #0284c7, #4f46e5);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .header p { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+        /* ---------------- Form Elements ---------------- */
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .input-group label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .input-row { display: flex; gap: 12px; }
+        .input-row input {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid var(--glass-border);
+            color: #0f172a;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: 0.2s ease;
+        }
+        .input-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2); }
+
+        .hint { font-size: 12px; color: #d97706; margin-top: -4px;}
+
+        /* ---------------- Dashboard Results ---------------- */
+        #results-panel { display: none; flex-direction: column; gap: 20px; }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+        }
+        .metric-card {
+            background: rgba(255,255,255,1);
+            border: 1px solid var(--glass-border);
+            padding: 12px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .metric-card.highlight {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.05), rgba(79, 70, 229, 0.05));
+            border-color: rgba(14, 165, 233, 0.3);
+            grid-column: span 3; /* 让高亮收益卡片横跨 3 列，更修长醒目 */
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+        }
+        .metric-title { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+        .highlight .metric-title { margin-bottom: 0; font-size: 13px; font-weight: 600; color: #334155; }
+        .metric-value { font-size: 20px; font-weight: 700; color: #0f172a;}
+        .highlight .metric-value { font-size: 24px; color: #0284c7; }
+        .metric-unit { font-size: 11px; color: var(--text-muted); font-weight: normal; }
+
+        .chart-container {
+            height: 220px;
+            background: #ffffff;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        /* ---------------- Banner / Lead Magnet CTA ---------------- */
+        .cta-banner {
+            background: rgba(254, 242, 242, 1);
+            border: 1px solid rgba(252, 165, 165, 1);
+            border-radius: 8px;
+            padding: 16px;
+            font-size: 13px;
+            line-height: 1.5;
+            color: #b91c1c;
+        }
+
+        /* Loader */
+        #loader {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: var(--accent);
+            font-size: 14px;
+        }
+        .spinner {
+            width: 24px; height: 24px; border: 3px solid rgba(14, 165, 233, 0.2); border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 10px;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body>
+
+    <div id="map-container">
+        <div id="map"></div>
+        <div class="map-overlay">
+            <label>
+                <input type="checkbox" id="lulc-toggle"> 
+                叠加微观地表覆盖限制 (10m)
+            </label>
+            <select id="lulc-year" disabled>
+                <option value="2021">2021 年版</option>
+                <option value="2020">2020 年版</option>
+            </select>
+        </div>
+        
+        <!-- Legend Panel -->
+        <div id="lulc-legend">
+            <div class="legend-title">ESA 10m 图例 (中英对照)</div>
+            <div class="legend-grid">
+                <div class="legend-item"><div class="legend-color" style="background:#006400"></div>林地 (Trees)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#ffbb22"></div>灌木 (Shrubland)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#ffff4c"></div>草地 (Grassland)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#f096ff"></div>耕地 (Cropland)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#fa0000"></div>建成区 (Built-up)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#b4b4b4"></div>裸地 (Bare)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#f0f0f0"></div>雪/冰 (Snow)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#0064c8"></div>水体 (Water)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#0096a0"></div>湿地 (Wetland)</div>
+                <div class="legend-item"><div class="legend-color" style="background:#00cf75"></div>红树林 (Mangrove)</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="sidebar">
+        <div class="header">
+            <h1>新能源宏观选址评估系统</h1>
+            <p>1. 设定基准年份，并在地图选取踏勘点位。<br>2. 调整规划装机容量，秒级基准定级收益。</p>
+        </div>
+
+        <div class="input-group">
+            <label>气象数据基准期 (Time Window)</label>
+            <div class="input-row">
+                <select id="start-year" style="flex:1; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--glass-border); padding: 12px; border-radius: 8px; font-size: 14px; outline: none; transition: 0.2s ease;">
+                    <option value="2010">2010 年 (Start)</option>
+                    <option value="2015">2015 年</option>
+                    <option value="2020">2020 年</option>
+                    <option value="2021">2021 年</option>
+                    <option value="2022">2022 年</option>
+                    <option value="2023" selected>2023 年 (Default)</option>
+                    <option value="2024">2024 年</option>
+                </select>
+                <span style="align-self: center; color: var(--text-muted); font-size: 14px;">至</span>
+                <select id="end-year" style="flex:1; background: rgba(255, 255, 255, 0.9); border: 1px solid var(--glass-border); padding: 12px; border-radius: 8px; font-size: 14px; outline: none; transition: 0.2s ease;">
+                    <option value="2021">2021 年 (End)</option>
+                    <option value="2023">2023 年</option>
+                    <option value="2024">2024 年</option>
+                    <option value="2025" selected>2025 年 (Default)</option>
+                </select>
+            </div>
+            <span class="hint">⏳ 年跨度建议 ≤5 年以保证最佳交互速度</span>
+        </div>
+
+        <div class="input-group">
+            <label>目标点位坐标 (自动填入)</label>
+            <div class="input-row">
+                <input type="text" id="lat-input" placeholder="纬度 (Lat)" readonly>
+                <input type="text" id="lon-input" placeholder="经度 (Lon)" readonly>
+            </div>
+            <span class="hint">🌍 提示：请直接在右侧遥感地图上选点</span>
+        </div>
+
+        <div class="input-group">
+            <label>计划装机容量 (MW)</label>
+            <div class="input-row">
+                <input type="number" id="wind-cap" value="50" step="1" title="风电(MW)">
+                <input type="number" id="solar-cap" value="20" step="1" title="光伏(MW)">
+            </div>
+        </div>
+
+        <div id="loader">
+            <div class="spinner"></div>
+            正在全网调取气象长序列数据...
+        </div>
+
+        <div id="results-panel">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-title">100米轮毂高度年均风速</div>
+                    <div class="metric-value"><span id="val-ws">--</span> <span class="metric-unit">m/s</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">年均日辐照度</div>
+                    <div class="metric-value"><span id="val-sr">--</span> <span class="metric-unit">kWh/m²</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">海拔高程与地表坡度</div>
+                    <div class="metric-value" style="font-size:16px"><span id="val-elev">--</span> <span class="metric-unit">m</span></div>
+                    <div class="metric-unit" style="margin-top:2px;">坡度 <span id="val-slope">--</span>° <span id="slope-warning" style="display:none;color:#ef4444;font-weight:bold;">(⚠陡坡)</span></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-title">全时域云量覆盖率</div>
+                    <div class="metric-value"><span id="val-cloud">--</span> <span class="metric-unit">%</span></div>
+                    <div class="metric-unit" style="margin-top:2px; color:#d97706;">光伏PR损耗: <span id="val-pr">--</span>%</div>
+                </div>
+                <div class="metric-card highlight">
+                    <div class="metric-title">综合理论年收益 (万度)</div>
+                    <div style="display:flex; gap: 24px;">
+                        <div><span style="font-size:12px;color:var(--text-muted)">风电 </span><span id="val-wind-yield" class="metric-value">--</span></div>
+                        <div><span style="font-size:12px;color:var(--text-muted)">光伏 </span><span id="val-solar-yield" class="metric-value">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cta-banner">
+                ⚠️ <strong>宏观投资提醒：</strong>当前极简测算使用平原标况系数，未计入山地/丘陵地带由于微地形造成的山脊加速或尾流折损现象。（特定地理特征最高可能产生 >20% 的投资偏差预期）。
+            </div>
+
+            <!-- Chart: 极坐标风向玫瑰图 (Wind Rose) -->
+            <div id="wind-rose-chart" class="chart-container" style="height: 240px;"></div>
+
+            <!-- Chart: 月度月份差异 (辐照+风速) -->
+            <div id="monthly-chart" class="chart-container"></div>
+            
+            <!-- Chart: 日内小时间差异 (辐照+风速) -->
+            <div id="hourly-chart" class="chart-container"></div>
+            
+            <div style="font-size: 11px; color: var(--text-muted); background: rgba(255,255,255,0.7); padding: 12px; border-radius: 8px; border: 1px dashed var(--glass-border); line-height: 1.6; margin-top: -5px;">
+                <div style="font-weight: 600; color: #334155; margin-bottom: 6px;">🌍 数据溯源与时空精度标定 (Data Provenance)</div>
+                <ul style="list-style: none; padding: 0; margin: 0;">
+                    <li><span style="color:#0f172a;font-weight:600">地形高程计算:</span> Open-Meteo DEM (Copernicus GLO-30) | 空分: <b>30m~90m (极高)</b></li>
+                    <li><span style="color:#0f172a;font-weight:600">气象核心数据(风速/辐照度/云层/日内时序):</span> Open-Meteo Historic Archive (底层基于高精 ERA5-Land 再分析数据) | 空分: <b>0.1° (~9km)</b> | 时分: <b>最高按小时聚合</b></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. Initialize MapLibre Map
+        // 采用 Esri World Imagery (高清遥感影像图)
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                'version': 8,
+                'sources': {
+                    'esri-satellite': {
+                        'type': 'raster',
+                        'tiles': [
+                            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+                        ],
+                        'tileSize': 256,
+                        'attribution': 'Tiles &copy; Esri'
+                    },
+                    'esri-labels': {
+                        'type': 'raster',
+                        'tiles': [
+                            'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
+                        ],
+                        'tileSize': 256
+                    },
+                    'esa-worldcover': {
+                        'type': 'raster',
+                        'tiles': [
+                            'https://services.terrascope.be/wms/v2?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&BBOX={bbox-epsg-3857}&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&LAYERS=WORLDCOVER_2021_MAP&STYLES=&FORMAT=image/png&TRANSPARENT=true'
+                        ],
+                        'tileSize': 256
+                    }
+                },
+                'layers': [
+                    {
+                        'id': 'esri-satellite-layer',
+                        'type': 'raster',
+                        'source': 'esri-satellite',
+                        'minzoom': 0,
+                        'maxzoom': 19
+                    },
+                    {
+                        'id': 'esa-worldcover-layer',
+                        'type': 'raster',
+                        'source': 'esa-worldcover',
+                        'minzoom': 0,
+                        'maxzoom': 19,
+                        'layout': {
+                            'visibility': 'none'
+                        },
+                        'paint': {
+                            'raster-opacity': 0.6
+                        }
+                    },
+                    {
+                        'id': 'esri-labels-layer',
+                        'type': 'raster',
+                        'source': 'esri-labels',
+                        'minzoom': 0,
+                        'maxzoom': 19
+                    }
+                ]
+            },
+            center: [111.60, 41.80],
+            zoom: 4,
+            pitch: 0
+        });
+
+        // Toggle LULC Layer Visibility
+        const lulcToggle = document.getElementById('lulc-toggle');
+        const lulcYear = document.getElementById('lulc-year');
+        const lulcLegend = document.getElementById('lulc-legend');
+
+        lulcToggle.addEventListener('change', (e) => {
+            const isVisible = e.target.checked;
+            map.setLayoutProperty('esa-worldcover-layer', 'visibility', isVisible ? 'visible' : 'none');
+            lulcYear.disabled = !isVisible;
+            lulcLegend.style.display = isVisible ? 'block' : 'none';
+        });
+
+        // Change LULC Year Source dynamically
+        lulcYear.addEventListener('change', (e) => {
+            const year = e.target.value;
+            const newUrl = `https://services.terrascope.be/wms/v2?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&BBOX={bbox-epsg-3857}&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&LAYERS=WORLDCOVER_${year}_MAP&STYLES=&FORMAT=image/png&TRANSPARENT=true`;
+            if (map.getSource('esa-worldcover')) {
+                // MapLibre raw tiles update feature does not always expose setTiles, 
+                // but setting a new generic source with the same ID or using addSource might be tricky if not supported.
+                // An easier way is to remove layer, remove source, and re-add them instantly.
+                map.removeLayer('esa-worldcover-layer');
+                map.removeSource('esa-worldcover');
+                map.addSource('esa-worldcover', { type: 'raster', tiles: [newUrl], tileSize: 256 });
+                map.addLayer({
+                    'id': 'esa-worldcover-layer',
+                    'type': 'raster',
+                    'source': 'esa-worldcover',
+                    'minzoom': 0,
+                    'maxzoom': 19,
+                    'layout': { 'visibility': 'visible' },
+                    'paint': { 'raster-opacity': 0.6 }
+                }, 'esri-labels-layer'); // Ensure labels stay on top of worldcover
+            }
+        });
+
+        let currentMarker = null;
+        let monthlyChart = echarts.init(document.getElementById('monthly-chart'));
+        let hourlyChart = echarts.init(document.getElementById('hourly-chart'));
+        let windRoseChart = echarts.init(document.getElementById('wind-rose-chart'));
+
+        window.addEventListener('resize', () => {
+            monthlyChart.resize();
+            hourlyChart.resize();
+            windRoseChart.resize();
+        });
+
+        const TEXT_COLOR = '#64748b';
+        const AXIS_COLOR = '#cbd5e1';
+
+        function drawMonthlyChart(solarDataDict, windDataDict) {
+            const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+            const solarData = months.map(m => solarDataDict[m]);
+            const windData = months.map(m => windDataDict[m]);
+            
+            monthlyChart.setOption({
+                title: { text: '宏观月度均值差异', textStyle: { color: '#334155', fontSize: 13, fontWeight: 'bold' }, top: 0 },
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: ['短波辐射 (kWh/m²)', '风速 (m/s)'], right: 0, textStyle: { fontSize: 10 } },
+                grid: { left: '10%', right: '10%', bottom: '15%', top: '30%' },
+                xAxis: { type: 'category', data: ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'], axisLine: { lineStyle: { color: AXIS_COLOR } }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } },
+                yAxis: [
+                    { type: 'value', name: '辐照', position: 'left', splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } },
+                    { type: 'value', name: '风速', position: 'right', splitLine: { show: false }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } }
+                ],
+                series: [
+                    {
+                        name: '短波辐射 (kWh/m²)',
+                        data: solarData,
+                        type: 'bar',
+                        itemStyle: { color: '#f59e0b', borderRadius: [2, 2, 0, 0] }
+                    },
+                    {
+                        name: '风速 (m/s)',
+                        data: windData,
+                        type: 'line',
+                        yAxisIndex: 1,
+                        itemStyle: { color: '#0ea5e9' },
+                        lineStyle: { width: 3 },
+                        smooth: true
+                    }
+                ]
+            });
+        }
+
+        function drawHourlyChart(hourlySolarList, hourlyWindList) {
+            // Generating hours 0-23
+            const hours = Array.from({length: 24}, (_, i) => i + ':00');
+            
+            hourlyChart.setOption({
+                title: { text: '日内 24H 典型消纳曲线 (全年平均)', textStyle: { color: '#334155', fontSize: 13, fontWeight: 'bold'}, top: 0 },
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: ['辐射通量 (W/m²)', '风速 (m/s)'], right: 0, textStyle: { fontSize: 10 } },
+                grid: { left: '10%', right: '10%', bottom: '15%', top: '30%' },
+                xAxis: { type: 'category', data: hours, boundaryGap: false, axisLine: { lineStyle: { color: AXIS_COLOR } }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } },
+                yAxis: [
+                    { type: 'value', name: '辐射', position: 'left', splitLine: { lineStyle: { color: '#f1f5f9' } }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } },
+                    { type: 'value', name: '风速', position: 'right', splitLine: { show: false }, axisLabel: { color: TEXT_COLOR, fontSize: 10 } }
+                ],
+                series: [
+                    {
+                        name: '辐射通量 (W/m²)',
+                        data: hourlySolarList,
+                        type: 'line',
+                        areaStyle: { color: 'rgba(245, 158, 11, 0.2)' },
+                        itemStyle: { color: '#f59e0b' },
+                        smooth: true
+                    },
+                    {
+                        name: '风速 (m/s)',
+                        data: hourlyWindList,
+                        type: 'line',
+                        yAxisIndex: 1,
+                        itemStyle: { color: '#0ea5e9' },
+                        lineStyle: { width: 3 },
+                        smooth: true
+                    }
+                ]
+            });
+        }
+
+        function drawWindRoseChart(windRoseData) {
+            const sectors = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+            windRoseChart.setOption({
+                title: { text: '常年高空风向频率玫瑰图', textStyle: { color: '#334155', fontSize: 13, fontWeight: 'bold' }, top: 0, left: 'center' },
+                tooltip: { formatter: '{b} : {c}%' },
+                polar: { radius: '60%' },
+                angleAxis: { type: 'category', data: sectors, boundaryGap: false, splitLine: { show: true }, axisTick: { show: false }, axisLabel: { fontSize: 10 } },
+                radiusAxis: { axisLabel: { formatter: '{value}%', fontSize: 9 } },
+                series: [{
+                    type: 'bar',
+                    data: windRoseData,
+                    coordinateSystem: 'polar',
+                    name: '风向频率',
+                    itemStyle: { color: '#0ea5e9', opacity: 0.8 }
+                }]
+            });
+        }
+
+        async function fetchProfileData(lat, lon) {
+            const windMw = document.getElementById('wind-cap').value || 50;
+            const solarMw = document.getElementById('solar-cap').value || 20;
+            const startYear = document.getElementById('start-year').value || 2023;
+            const endYear = document.getElementById('end-year').value || 2025;
+            
+            if (parseInt(endYear) - parseInt(startYear) > 5) {
+                alert("为保证秒级极速运算，起止年份跨度限制在5年内！请重新选择。");
+                return;
+            }
+            if (parseInt(endYear) < parseInt(startYear)) {
+                alert("结束年份不可小于起始年份！");
+                return;
+            }
+
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('results-panel').style.display = 'none';
+
+            try {
+                const response = await fetch(`http://localhost:8000/api/profile?lat=${lat}&lon=${lon}&wind_mw=${windMw}&solar_mw=${solarMw}&start_year=${startYear}&end_year=${endYear}`);
+                if (!response.ok) throw new Error('API failed. Ensure Python server is running.');
+                const data = await response.json();
+                
+                document.getElementById('val-ws').textContent = data.metrics.avg_wind_speed_m_s;
+                document.getElementById('val-sr').textContent = data.metrics.avg_solar_rad_kwh_m2_day;
+                document.getElementById('val-elev').textContent = data.metrics.elevation_m;
+                document.getElementById('val-slope').textContent = data.metrics.slope_deg;
+                
+                if (data.metrics.slope_deg >= 15.0) {
+                    document.getElementById('slope-warning').style.display = 'inline';
+                } else {
+                    document.getElementById('slope-warning').style.display = 'none';
+                }
+                
+                document.getElementById('val-cloud').textContent = data.metrics.cloud_amount_percent;
+                document.getElementById('val-pr').textContent = (100 - data.metrics.solar_pr_used).toFixed(1);
+                
+                document.getElementById('val-wind-yield').textContent = data.yields.wind_annual_10k_kwh;
+                document.getElementById('val-solar-yield').textContent = data.yields.solar_annual_10k_kwh;
+
+                // 渲染图表
+                drawMonthlyChart(data.charts.solar_monthly, data.charts.wind_monthly);
+                drawHourlyChart(data.charts.solar_hourly, data.charts.wind_hourly);
+                drawWindRoseChart(data.charts.wind_rose);
+
+                document.getElementById('results-panel').style.display = 'flex';
+                
+                // 【核心修复】Echarts 在 display:none 的父容器下初始化宽高会变成 0，
+                // 在将其设为 flex 后，必须强制触发由于尺寸造成的重绘
+                setTimeout(() => {
+                    monthlyChart.resize();
+                    hourlyChart.resize();
+                    windRoseChart.resize();
+                }, 50);
+
+            } catch (error) {
+                console.error(error);
+                alert("❌ 数据请求异常。\n" + error);
+            } finally {
+                document.getElementById('loader').style.display = 'none';
+            }
+        }
+
+        // Map Click Event
+        map.on('click', (e) => {
+            const lat = e.lngLat.lat.toFixed(3);
+            const lon = e.lngLat.lng.toFixed(3);
+
+            document.getElementById('lat-input').value = lat;
+            document.getElementById('lon-input').value = lon;
+
+            if (currentMarker) currentMarker.remove();
+            
+            const el = document.createElement('div');
+            el.innerHTML = `<div style="width:20px;height:20px;background:#ef4444;border-radius:50%;box-shadow: 0 0 15px rgba(239, 68, 68, 0.8);border:2px solid #fff;"></div>`;
+            
+            currentMarker = new maplibregl.Marker({element: el})
+                .setLngLat([lon, lat])
+                .addTo(map);
+
+            fetchProfileData(lat, lon);
+        });
+
+        // Trigger refetch if inputs change manually
+        const refetchHandler = () => {
+             const lat = document.getElementById('lat-input').value;
+             const lon = document.getElementById('lon-input').value;
+             if(lat && lon) fetchProfileData(lat, lon);
+        };
+        
+        document.getElementById('wind-cap').addEventListener('change', refetchHandler);
+        document.getElementById('solar-cap').addEventListener('change', refetchHandler);
+        document.getElementById('start-year').addEventListener('change', refetchHandler);
+        document.getElementById('end-year').addEventListener('change', refetchHandler);
+
+    </script>
+</body>
+</html>
