@@ -1,0 +1,7 @@
+omnicloudmask
+rasterio
+matplotlib
+numpy
+netCDF4
+torch
+tqdm
